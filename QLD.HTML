@@ -1,0 +1,596 @@
+import React, { useState, useMemo } from 'react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Cell, PieChart, Pie
+} from 'recharts';
+import { 
+  Search, User, Lock, LayoutDashboard, Table, BarChart3, 
+  LogOut, TrendingUp, TrendingDown, AlertCircle,
+  UserCheck, GraduationCap, Plus, RotateCcw,
+  Calculator, BookOpen, Languages, X, UserPlus, Info, Settings, ShieldCheck, Key, RefreshCw
+} from 'lucide-react';
+
+// --- Dữ liệu ban đầu ---
+const INITIAL_PERIODS = [
+  { id: 'hki', label: 'Học kỳ I' },
+  { id: 'ks1', label: 'Khảo sát 1' },
+  { id: 't2', label: 'Tháng 2' },
+  { id: 'hkii', label: 'Học kỳ II' }
+];
+
+const INITIAL_STUDENTS = [
+  { id: 1, name: "Anh", fullName: "Đoàn Quỳnh Anh", dob: "01/01/2009", password: "",
+    scores: { 
+      hki: { toan: 9.0, van: 7.0, anh: 8.2, tong: 24.2, xh: 1 }, 
+      ks1: { toan: 7.5, van: 7.75, anh: 6.75, tong: 22.0, xh: 1 },
+      t2: { toan: 8.0, van: 7.5, anh: 7.0, tong: 22.5, xh: 1 },
+      hkii: { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 }
+    } 
+  },
+  { id: 23, name: "Mai", fullName: "Nguyễn Hà Mai", dob: "01/02/2009", password: "",
+    scores: { 
+      hki: { toan: 6.75, van: 7.25, anh: 9.6, tong: 23.6, xh: 2 }, 
+      ks1: { toan: 4.25, van: 5.75, anh: 5.75, tong: 15.75, xh: 2 },
+      t2: { toan: 5.0, van: 6.0, anh: 6.0, tong: 17.0, xh: 2 },
+      hkii: { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 }
+    } 
+  }
+];
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+const App = () => {
+  const [view, setView] = useState('landing');
+  const [user, setUser] = useState(null);
+  const [students, setStudents] = useState(INITIAL_STUDENTS);
+  const [periods, setPeriods] = useState(INITIAL_PERIODS);
+  const [activePeriodId, setActivePeriodId] = useState('ks1');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [showAddModal, setShowAddModal] = useState(false);
+  
+  const [adminPassword, setAdminPassword] = useState('123456');
+
+  // --- Sinh mật khẩu ngẫu nhiên ---
+  const generateRandomPassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let result = "";
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+
+  const handleUpdateStudentPassword = (id, newPass) => {
+    setStudents(prev => prev.map(s => s.id === id ? { ...s, password: newPass } : s));
+  };
+
+  // --- Hỗ trợ tính toán ---
+  const calculateTotal = (s) => (parseFloat(s.toan || 0) + parseFloat(s.van || 0) + parseFloat(s.anh || 0));
+
+  const handleAddStudent = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const fullName = formData.get('fullName').trim();
+    const dob = formData.get('dob').trim();
+    
+    if (!fullName || !dob) return;
+
+    const newStudent = {
+      id: Date.now(),
+      name: fullName.split(' ').pop(),
+      fullName,
+      dob,
+      password: "",
+      scores: periods.reduce((acc, p) => ({
+        ...acc,
+        [p.id]: { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 }
+      }), {})
+    };
+
+    setStudents([...students, newStudent]);
+    setShowAddModal(false);
+  };
+
+  const updateScore = (studentId, subject, value) => {
+    setStudents(prev => {
+      const updated = prev.map(s => {
+        if (s.id === studentId) {
+          const newScores = { ...s.scores };
+          newScores[activePeriodId] = { 
+            ...newScores[activePeriodId], 
+            [subject]: parseFloat(value) || 0 
+          };
+          newScores[activePeriodId].tong = calculateTotal(newScores[activePeriodId]);
+          return { ...s, scores: newScores };
+        }
+        return s;
+      });
+
+      const sorted = [...updated].sort((a, b) => (b.scores[activePeriodId]?.tong || 0) - (a.scores[activePeriodId]?.tong || 0));
+      return updated.map(s => {
+        const rank = sorted.findIndex(item => item.id === s.id) + 1;
+        const newScores = { ...s.scores };
+        newScores[activePeriodId].xh = (newScores[activePeriodId]?.tong > 0) ? rank : 0;
+        return { ...s, scores: newScores };
+      });
+    });
+  };
+
+  const handleResetPeriod = () => {
+    if (confirm(`Xác nhận xóa trắng điểm đợt "${periods.find(p => p.id === activePeriodId).label}"?`)) {
+      setStudents(prev => prev.map(s => ({
+        ...s,
+        scores: { ...s.scores, [activePeriodId]: { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 } }
+      })));
+    }
+  };
+
+  const handleAddPeriod = () => {
+    const name = prompt("Tên đợt mới (VD: Tháng 3, HK II):");
+    if (name) {
+      const id = 'p' + Date.now();
+      setPeriods([...periods, { id, label: name }]);
+      setStudents(prev => prev.map(s => ({
+        ...s,
+        scores: { ...s.scores, [id]: { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 } }
+      })));
+      setActivePeriodId(id);
+    }
+  };
+
+  const classification = useMemo(() => {
+    const stats = { Gioi: 0, Kha: 0, TB: 0, Yeu: 0 };
+    students.forEach(s => {
+      const avg = (s.scores[activePeriodId]?.tong || 0) / 3;
+      if (avg >= 8) stats.Gioi++;
+      else if (avg >= 6.5) stats.Kha++;
+      else if (avg >= 5) stats.TB++;
+      else if ((s.scores[activePeriodId]?.tong || 0) > 0) stats.Yeu++;
+    });
+    return [
+      { name: 'Giỏi', value: stats.Gioi },
+      { name: 'Khá', value: stats.Kha },
+      { name: 'Trung bình', value: stats.TB },
+      { name: 'Yếu', value: stats.Yeu },
+    ].filter(i => i.value > 0);
+  }, [students, activePeriodId]);
+
+  // --- Xử lý Đăng nhập ---
+  const handleLogin = (type, username, password) => {
+    const u = username.trim();
+    const p = password.trim();
+
+    if (type === 'teacher') {
+      if (u === 'admin' && p === adminPassword) {
+        setUser({ role: 'teacher', name: 'Giáo viên' });
+        setView('teacher_dash');
+      } else {
+        alert("Sai tài khoản hoặc mật khẩu Giáo viên!");
+      }
+    } else {
+      const found = students.find(s => {
+        const checkPass = s.password || s.dob;
+        return s.fullName === u && checkPass === p;
+      });
+      if (found) {
+        setUser({ role: 'student', ...found });
+        setView('student_dash');
+      } else {
+        alert("Không tìm thấy học sinh hoặc mật khẩu không đúng!");
+      }
+    }
+  };
+
+  const handleChangeAdminPassword = (e) => {
+    e.preventDefault();
+    const current = e.target.currentPassword.value;
+    const newPass = e.target.newPassword.value;
+    const confirmPass = e.target.confirmPassword.value;
+
+    if (current !== adminPassword) {
+      alert("Mật khẩu hiện tại không đúng!");
+      return;
+    }
+    if (newPass !== confirmPass) {
+      alert("Mật khẩu mới không khớp nhau!");
+      return;
+    }
+    setAdminPassword(newPass);
+    alert("Đổi mật khẩu thành công!");
+    e.target.reset();
+  };
+
+  const globalStyles = (
+    <style>{`
+      @import url('https://fonts.cdnfonts.com/css/calibri-light');
+      * {
+        font-family: 'Calibri Light', 'Calibri', sans-serif !important;
+      }
+      .app-title-red {
+        color: #e11d48; /* Red-600 */
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: -0.025em;
+        white-space: nowrap;
+      }
+    `}</style>
+  );
+
+  const AppTitle = ({ className = "" }) => (
+    <h1 className={`app-title-red ${className}`}>
+      QUẢN LÝ ĐIỂM 9A3 - TRƯỜNG THCS HÀ ĐÔNG
+    </h1>
+  );
+
+  if (view === 'landing') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        {globalStyles}
+        <div className="text-center mb-12 w-full max-w-4xl">
+          <div className="bg-rose-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-rose-200">
+            <GraduationCap size={40} className="text-white" />
+          </div>
+          <AppTitle className="text-2xl md:text-4xl" />
+          <p className="text-slate-400 mt-4 font-medium tracking-wide italic">Hệ thống thông tin giáo dục trực tuyến</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
+          <button onClick={() => setView('login_teacher')} className="p-8 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-rose-600 transition-all text-left group">
+            <div className="bg-rose-100 text-rose-600 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <UserCheck />
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 tracking-tight">Dành cho Giáo viên</h3>
+            <p className="text-sm text-slate-500 mt-1 font-medium italic">Quản lý điểm số & cài đặt hệ thống</p>
+          </button>
+          <button onClick={() => setView('login_student')} className="p-8 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-600 transition-all text-left group">
+            <div className="bg-emerald-100 text-emerald-600 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <User />
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 tracking-tight">Dành cho Học sinh</h3>
+            <p className="text-sm text-slate-500 mt-1 font-medium italic">Tra cứu bảng điểm & nhận xét cá nhân</p>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view.startsWith('login_')) {
+    const isTeacher = view === 'login_teacher';
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        {globalStyles}
+        <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100">
+          <button onClick={() => setView('landing')} className="text-slate-400 hover:text-slate-600 mb-8 flex items-center text-sm font-bold uppercase tracking-wider">← Quay lại</button>
+          <h2 className="text-2xl font-black mb-2 text-slate-800 uppercase tracking-tight">Đăng nhập {isTeacher ? 'GV' : 'HS'}</h2>
+          <p className="text-slate-400 text-sm mb-8 font-medium italic">Vui lòng cung cấp thông tin bên dưới</p>
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            handleLogin(isTeacher ? 'teacher' : 'student', e.target.username.value, e.target.password.value);
+          }} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Tài khoản / Họ tên</label>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                <input name="username" type="text" placeholder={isTeacher ? "admin" : "Nguyễn Hà Mai"} className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-600 transition-all font-bold" required />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Mật khẩu</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                <input name="password" type={isTeacher ? "password" : "text"} placeholder={isTeacher ? "••••••" : "Ngày sinh hoặc mật khẩu mới"} className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-600 transition-all font-bold" required />
+              </div>
+            </div>
+            <button type="submit" className={`w-full py-4 rounded-2xl font-black text-white shadow-lg transition-all transform hover:-translate-y-1 ${isTeacher ? 'bg-rose-600 shadow-rose-100' : 'bg-emerald-600 shadow-emerald-100'}`}>XÁC NHẬN ĐĂNG NHẬP</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Dashboard Giáo viên ---
+  if (view === 'teacher_dash') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
+        {globalStyles}
+        <aside className="w-full md:w-72 bg-white border-r border-slate-200 p-8 flex flex-col">
+          <div className="mb-12">
+            <AppTitle className="text-lg" />
+          </div>
+          <nav className="flex-1 space-y-4">
+            {[
+              { id: 'overview', label: 'Bàn làm việc', icon: LayoutDashboard },
+              { id: 'grades', label: 'Bảng điểm lớp', icon: Table },
+              { id: 'accounts', label: 'Quản lý mật khẩu HS', icon: Key },
+              { id: 'settings', label: 'Cài đặt hệ thống', icon: Settings },
+            ].map(item => (
+              <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === item.id ? 'bg-rose-600 text-white shadow-xl shadow-rose-200' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <item.icon size={20} /> {item.label}
+              </button>
+            ))}
+          </nav>
+          <button onClick={() => setView('landing')} className="mt-auto flex items-center gap-3 text-rose-500 font-black hover:bg-rose-50 p-5 rounded-2xl transition-colors uppercase text-xs tracking-widest"><LogOut size={20} /> Đăng xuất</button>
+        </aside>
+
+        <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+          <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+            <div>
+              <AppTitle className="text-2xl" />
+              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-2 italic tracking-normal">Chế độ quản trị viên: <span className="text-rose-600">{periods.find(p => p.id === activePeriodId).label}</span></p>
+            </div>
+            {activeTab === 'grades' && (
+              <div className="flex items-center gap-4 bg-white p-2.5 rounded-2xl shadow-sm border border-slate-100">
+                <select value={activePeriodId} onChange={(e) => setActivePeriodId(e.target.value)} className="bg-transparent border-none px-4 py-2 font-black text-slate-700 outline-none text-sm cursor-pointer">
+                  {periods.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+                <button onClick={handleAddPeriod} className="bg-rose-50 text-rose-600 p-2.5 rounded-xl hover:bg-rose-100 transition-colors" title="Thêm đợt mới"><Plus size={20} /></button>
+              </div>
+            )}
+          </header>
+
+          {activeTab === 'overview' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[
+                  { label: 'Sĩ số', value: students.length, icon: UserCheck, color: 'blue' },
+                  { label: 'Điểm TB', value: (students.reduce((acc, s) => acc + (s.scores[activePeriodId]?.tong || 0), 0) / (students.length * 3 || 1)).toFixed(2), icon: TrendingUp, color: 'emerald' },
+                  { label: 'Đợt nhập', value: periods.length, icon: Table, color: 'amber' },
+                  { label: 'Học lực Giỏi', value: classification.find(c => c.name === 'Giỏi')?.value || 0, icon: GraduationCap, color: 'rose' },
+                ].map((stat, i) => (
+                  <div key={i} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
+                    <div className={`absolute -right-4 -top-4 p-8 opacity-5 group-hover:scale-125 transition-transform text-${stat.color}-600`}><stat.icon size={100} /></div>
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">{stat.label}</p>
+                    <p className="text-4xl font-black text-slate-800 mt-3 tracking-tighter">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'grades' && (
+            <div className="bg-white rounded-3xl border shadow-sm overflow-hidden border-slate-200 animate-in fade-in duration-500">
+              <div className="p-8 border-b bg-slate-50/50 flex flex-wrap gap-4 justify-between items-center">
+                <div className="flex gap-4">
+                  <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 px-6 py-3 bg-rose-600 text-white rounded-2xl text-xs font-black hover:shadow-xl hover:bg-rose-700 transition-all uppercase tracking-widest">
+                    <UserPlus size={18} /> Thêm HS
+                  </button>
+                  <button onClick={handleResetPeriod} className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-100 text-rose-500 rounded-2xl text-xs font-black hover:bg-rose-50 transition-all uppercase tracking-widest">
+                    <RotateCcw size={18} /> Xóa trắng đợt
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-orange-500 text-white font-black text-sm uppercase tracking-[0.1em]">
+                    <tr>
+                      <th className="px-10 py-6 border-r border-orange-400">Học sinh</th>
+                      <th className="px-4 py-6 text-center border-r border-orange-400">Toán</th>
+                      <th className="px-4 py-6 text-center border-r border-orange-400">Văn</th>
+                      <th className="px-4 py-6 text-center border-r border-orange-400">Anh</th>
+                      <th className="px-6 py-6 text-center border-r border-orange-400">Tổng</th>
+                      <th className="px-6 py-6 text-center">XH</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {students.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50 transition-colors group">
+                        <td className="px-10 py-6 border-r border-slate-200">
+                          <p className="font-black text-blue-900 text-base tracking-tight">{s.fullName}</p>
+                          <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5 italic tracking-normal">Ngày sinh: {s.dob}</p>
+                        </td>
+                        <td className="px-4 py-6 border-r border-slate-200">
+                          <input type="number" step="0.25" value={s.scores[activePeriodId]?.toan || 0} onChange={(e) => updateScore(s.id, 'toan', e.target.value)} className="w-20 mx-auto block p-3 bg-slate-100 border-2 border-slate-200 rounded-2xl text-center font-black text-slate-700 focus:bg-white focus:border-orange-500 outline-none transition-all" />
+                        </td>
+                        <td className="px-4 py-6 border-r border-slate-200">
+                          <input type="number" step="0.25" value={s.scores[activePeriodId]?.van || 0} onChange={(e) => updateScore(s.id, 'van', e.target.value)} className="w-20 mx-auto block p-3 bg-slate-100 border-2 border-slate-200 rounded-2xl text-center font-black text-slate-700 focus:bg-white focus:border-orange-500 outline-none transition-all" />
+                        </td>
+                        <td className="px-4 py-6 border-r border-slate-200">
+                          <input type="number" step="0.25" value={s.scores[activePeriodId]?.anh || 0} onChange={(e) => updateScore(s.id, 'anh', e.target.value)} className="w-20 mx-auto block p-3 bg-slate-100 border-2 border-slate-200 rounded-2xl text-center font-black text-slate-700 focus:bg-white focus:border-orange-500 outline-none transition-all" />
+                        </td>
+                        <td className="px-6 py-6 text-center border-r border-slate-200">
+                          <div className="font-black text-rose-600 text-xl tracking-tighter">{(s.scores[activePeriodId]?.tong || 0).toFixed(2)}</div>
+                        </td>
+                        <td className="px-6 py-6 text-center">
+                          <span className="px-4 py-1.5 bg-slate-100 text-slate-700 rounded-xl font-black text-[10px] tracking-widest uppercase border border-slate-200">{s.scores[activePeriodId]?.xh || '-'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'accounts' && (
+            <div className="bg-white rounded-3xl border shadow-sm overflow-hidden border-slate-200 animate-in fade-in duration-500">
+              <div className="p-8 border-b bg-rose-50/30">
+                <h3 className="text-xl font-black text-blue-900 uppercase tracking-tight flex items-center gap-3">
+                  <Key size={24} className="text-rose-600" /> Quản lý tài khoản học sinh
+                </h3>
+                <p className="text-slate-400 text-sm mt-1 font-medium italic">Mật khẩu mặc định là Ngày sinh. Bạn có thể cấp mật khẩu mới tại đây.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-orange-500 text-white font-black text-sm uppercase tracking-[0.1em]">
+                    <tr>
+                      <th className="px-10 py-6 border-r border-orange-400 w-1/3">Học sinh</th>
+                      <th className="px-10 py-6 border-r border-orange-400">Mật khẩu hiện tại</th>
+                      <th className="px-10 py-6 text-center">Tác vụ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {students.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-10 py-6 border-r border-slate-200">
+                          <p className="font-black text-blue-900 text-base">{s.fullName}</p>
+                          <p className="text-[10px] text-slate-400 font-bold italic tracking-normal">Ngày sinh: {s.dob}</p>
+                        </td>
+                        <td className="px-10 py-6 border-r border-slate-200">
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="text" 
+                              value={s.password || s.dob} 
+                              onChange={(e) => handleUpdateStudentPassword(s.id, e.target.value)}
+                              className="w-full px-4 py-2 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 focus:border-rose-600 outline-none transition-all"
+                            />
+                            {s.password && (
+                                <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-1 rounded font-black uppercase">Đã đổi</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-10 py-6 text-center">
+                          <button 
+                            onClick={() => handleUpdateStudentPassword(s.id, generateRandomPassword())}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-widest border border-blue-100"
+                          >
+                            <RefreshCw size={14} /> Tự sinh mật khẩu
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="bg-white p-10 rounded-[2.5rem] border shadow-sm border-slate-100 max-w-2xl animate-in zoom-in duration-500">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl"><ShieldCheck size={32} /></div>
+                <div>
+                  <h3 className="text-xl font-black text-blue-900 uppercase tracking-tight">Đổi mật khẩu Admin</h3>
+                  <p className="text-slate-400 text-sm font-medium">Bảo mật tài khoản quản trị viên</p>
+                </div>
+              </div>
+              
+              <form onSubmit={handleChangeAdminPassword} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Mật khẩu hiện tại</label>
+                  <input name="currentPassword" type="password" placeholder="••••••" className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-600 transition-all font-bold" required />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Mật khẩu mới</label>
+                    <input name="newPassword" type="password" placeholder="••••••" className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-600 transition-all font-bold" required />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Xác nhận mật khẩu mới</label>
+                    <input name="confirmPassword" type="password" placeholder="••••••" className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-600 transition-all font-bold" required />
+                  </div>
+                </div>
+                <button type="submit" className="px-8 py-4 bg-rose-600 text-white font-black rounded-2xl shadow-xl shadow-rose-100 hover:bg-rose-700 transition-all uppercase text-xs tracking-widest">Cập nhật mật khẩu</button>
+              </form>
+            </div>
+          )}
+        </main>
+
+        {/* Modal thêm học sinh */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+              <div className="p-10 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-black text-blue-900 uppercase tracking-tight">Thêm thành viên mới</h3>
+                <button onClick={() => setShowAddModal(false)} className="p-3 hover:bg-slate-100 rounded-2xl transition-colors"><X size={20}/></button>
+              </div>
+              <form onSubmit={handleAddStudent} className="p-10 space-y-8">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Họ và tên đầy đủ</label>
+                  <input name="fullName" type="text" placeholder="VD: Nguyễn Văn A" className="w-full px-6 py-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-rose-600 transition-all font-black" required />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em]">Ngày tháng năm sinh</label>
+                  <input name="dob" type="text" placeholder="VD: 15/05/2009" className="w-full px-6 py-4 bg-slate-50 border-2 border-transparent rounded-2xl outline-none focus:border-rose-600 transition-all font-black" required />
+                </div>
+                <div className="pt-4 flex gap-4">
+                  <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-4 font-black text-slate-400 hover:bg-slate-50 rounded-2xl transition-colors uppercase text-xs tracking-widest">Hủy</button>
+                  <button type="submit" className="flex-1 py-4 bg-rose-600 text-white font-black rounded-2xl shadow-xl shadow-rose-100 hover:bg-rose-700 transition-all uppercase text-xs tracking-widest">Lưu lại</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Dashboard Học sinh ---
+  if (view === 'student_dash') {
+    const s = user;
+    const currentScore = s.scores[activePeriodId] || { toan: 0, van: 0, anh: 0, tong: 0, xh: 0 };
+
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {globalStyles}
+        <header className="bg-rose-600 text-white p-12 pb-24 relative overflow-hidden text-center md:text-left">
+          <div className="absolute top-0 right-0 p-20 opacity-10"><GraduationCap size={300} /></div>
+          <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-10 relative z-10">
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <div className="w-28 h-28 bg-white/20 backdrop-blur-xl rounded-[2.5rem] flex items-center justify-center text-5xl font-black border border-white/30 shadow-2xl">
+                {s.fullName.split(' ').pop()[0]}
+              </div>
+              <div>
+                <AppTitle className="text-xl md:text-2xl text-rose-100" />
+                <h2 className="text-4xl font-black tracking-tighter uppercase text-white mt-2">{s.fullName}</h2>
+                <div className="flex items-center justify-center md:justify-start gap-4 mt-2 opacity-90 font-black text-xs uppercase tracking-widest">
+                  <span className="bg-white/20 px-4 py-1.5 rounded-xl border border-white/10 italic text-slate-100 font-medium tracking-normal tracking-normal">Ngày sinh: {s.dob}</span>
+                  <span className="bg-white/20 px-4 py-1.5 rounded-xl border border-white/10">Lớp 9A3</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setView('landing')} className="p-5 bg-white/10 hover:bg-rose-800 rounded-3xl transition-all border border-white/20 shadow-xl group"><LogOut size={28} className="group-hover:scale-110 transition-transform" /></button>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto -mt-16 p-6 space-y-10 relative z-20 animate-in fade-in slide-in-from-bottom-8 duration-700">
+          <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2rem] shadow-2xl border border-white/50 flex items-center justify-between">
+            <div className="flex items-center gap-4 px-3 text-sm font-black text-slate-500 uppercase">
+              <span className="tracking-[0.2em]">Đợt tra cứu:</span>
+            </div>
+            <select value={activePeriodId} onChange={(e) => setActivePeriodId(e.target.value)} className="bg-white border-2 border-slate-100 rounded-2xl px-8 py-3.5 text-lg font-black text-rose-600 outline-none shadow-sm focus:border-rose-600 transition-all cursor-pointer">
+              {periods.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-xl relative overflow-hidden group">
+              <div className="absolute -right-4 -top-4 opacity-5 text-rose-600 group-hover:scale-110 transition-transform"><TrendingUp size={120}/></div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">TỔNG ĐIỂM ĐẠT ĐƯỢC</p>
+              <h4 className="text-7xl font-black text-rose-600 mt-5 mb-3 tracking-tighter">{currentScore.tong.toFixed(2)}</h4>
+            </div>
+            <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-xl relative overflow-hidden group">
+              <div className="absolute -right-4 -top-4 opacity-5 text-slate-900 group-hover:scale-110 transition-transform"><GraduationCap size={120}/></div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">XẾP HẠNG TRONG LỚP</p>
+              <h4 className="text-7xl font-black text-slate-800 mt-5 mb-3 tracking-tighter">{currentScore.xh || '-'}</h4>
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest opacity-60">Trên tổng số {students.length} học sinh</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {[
+              { label: 'TOÁN HỌC', score: currentScore.toan, icon: Calculator, color: 'indigo', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-100' },
+              { label: 'NGỮ VĂN', score: currentScore.van, icon: BookOpen, color: 'emerald', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' },
+              { label: 'TIẾNG ANH', score: currentScore.anh, icon: Languages, color: 'orange', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' },
+            ].map((m, i) => (
+              <div key={i} className={`${m.bg} ${m.border} p-12 rounded-[3rem] shadow-xl border-2 flex flex-col items-center text-center group hover:-translate-y-3 transition-all duration-500`}>
+                <div className={`bg-white p-8 rounded-[2.5rem] mb-8 shadow-sm ${m.text}`}>
+                  <m.icon size={56} />
+                </div>
+                <h5 className="text-[10px] font-black opacity-60 uppercase tracking-[0.3em] mb-3 text-slate-600">{m.label}</h5>
+                <p className={`text-8xl font-black ${m.text} tracking-tighter`}>{m.score}</p>
+              </div>
+            ))}
+          </div>
+        </main>
+
+        <footer className="max-w-4xl mx-auto p-20 text-center">
+          <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.4em]">QUẢN LÝ ĐIỂM 9A3 - TRƯỜNG THCS HÀ ĐÔNG • 2024</p>
+        </footer>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+export default App;
